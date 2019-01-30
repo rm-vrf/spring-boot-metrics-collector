@@ -115,7 +115,7 @@ public class ElasticsearchService {
 			HttpStatus status = resp.getStatusCode();
 			if (status.is2xxSuccessful()) {
 				writeCounter.increment();
-				LOG.debug("write data into elasticsearch, size: {}", datas.size());
+				LOG.info("write data to elasticsearch, size: {}", datas.size());
 			} else {
 				errorCounter.increment();
 				LOG.error("elasticsearch error, status: {}, message: {}", status.value(), resp.toString());

@@ -14,6 +14,7 @@ import java.util.function.Function;
 
 import javax.annotation.PostConstruct;
 
+import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -107,7 +108,7 @@ public class BeatService {
 		Function<StringBuilder, List<RawData>> function = DRIVERS.get(uri.getPath());
 		if (function != null) {
 			List<RawData> datas = function.apply(content);
-			LOG.debug("parse data, size: {}", datas.size());
+			LOG.info("get data, host: {}, bytes: {}, size: {}", host, content.length(), datas.size());
 			datas.forEach(data -> {
 				data.setHost(uri.getHost());
 				data.setPort(uri.getPort());
@@ -147,6 +148,47 @@ public class BeatService {
 	
 	private static List<RawData> parsePrometheusRawData(StringBuilder content) {
 		List<RawData> list = new ArrayList<>();
+		final String[] lines = StringUtils.split(StringUtils.remove(content.toString(), '\r'), '\n');
+		
+		// group by name
+		List<List<String>> groups = new ArrayList<>();
+		List<String> g = null;
+		for (String line : lines) {
+			if (StringUtils.startsWith(line, "# HELP ")) {
+				if (g != null) {
+					groups.add(g);
+				}
+				g = new ArrayList<>();
+			} else {
+				g.add(line);
+			}
+		}
+		if (g != null) {
+			groups.add(g);
+		}
+		
+		// create data
+		for (List<String> group : groups) {
+			String[] ary = StringUtils.split(StringUtils.substringAfter(group.get(0), "# TYPE "), " ");
+			String name = ary[0];
+			Type type = Type.valueOf(StringUtils.upperCase(ary[1]));
+
+			for (int i = 1; i < group.size(); i ++) {
+				RawData data = new RawData();
+				data.setName(name);
+				data.setType(type);
+				data.setTags(StringUtils.substringBetween(group.get(i), "{", "}"));
+				Double value1 = Double.valueOf(StringUtils.substringAfterLast(group.get(i), " "));
+				data.setValue1(value1);
+				if (type == Type.SUMMARY) {
+					i ++;
+					Double value2 = Double.valueOf(StringUtils.substringAfterLast(group.get(i), " "));
+					data.setValue2(value2);
+				}
+				list.add(data);
+			}
+		}
+		
 		return list;
 	}
 	

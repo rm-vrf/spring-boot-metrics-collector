@@ -20,7 +20,7 @@ public class Swagger2 {
         return new Docket(DocumentationType.SWAGGER_2)
                 .apiInfo(apiInfo())
                 .select()
-                .apis(RequestHandlerSelectors.basePackage("cn.batchfile.metrics.exporter"))
+                .apis(RequestHandlerSelectors.basePackage("cn.batchfile.metrics"))
                 .paths(PathSelectors.any())
                 .build();
     }
