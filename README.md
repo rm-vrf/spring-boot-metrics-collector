@@ -48,7 +48,8 @@ output.elasticsearch:
   
   # Optional index name. The default is "metrics-collector-" plus date
   # and generates [metrics-collector-]YYYY-MM-DD keys.
-  # In case you modify this pattern you must update setup.template.name and setup.template.pattern accordingly.
+  # In case you modify this pattern you must update setup.template.name 
+  # and setup.template.pattern accordingly.
   index: "'metrics-collector-'yyyy-MM-dd"
   
   # The maximum number of events to bulk in a single Elasticsearch bulk API index request.
