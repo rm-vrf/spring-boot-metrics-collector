@@ -27,6 +27,7 @@ beat:
 
   # Managment Adress
   hosts:
+    - "http://localhost:8080/metrics
     - "http://localhost:28000/actuator/prometheus"
   
   # List of Metrics that shall be excluded from the collection
