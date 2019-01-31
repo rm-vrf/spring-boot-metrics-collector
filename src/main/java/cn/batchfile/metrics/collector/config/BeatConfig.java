@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 public class BeatConfig {
 
 	private int period;
+	private String eureka;
 	private List<String> hosts;
 	private List<String> excludes;
 
@@ -19,6 +20,14 @@ public class BeatConfig {
 
 	public void setPeriod(int period) {
 		this.period = period;
+	}
+
+	public String getEureka() {
+		return eureka;
+	}
+
+	public void setEureka(String eureka) {
+		this.eureka = eureka;
 	}
 
 	public List<String> getHosts() {

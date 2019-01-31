@@ -11,6 +11,7 @@ import java.util.Map.Entry;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import javax.annotation.PostConstruct;
 
@@ -18,6 +19,11 @@ import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
@@ -45,6 +51,7 @@ public class BeatService {
 	private Counter errorCounter;
 	private Counter inQueueCounter;
 	private Timer beatTimer;
+	private Timer eurekaTimer;
 	private long lastRun = 0;
 
 	@Autowired
@@ -66,6 +73,7 @@ public class BeatService {
 		errorCounter = Counter.builder("beat.error.count").register(registry);
 		inQueueCounter = Counter.builder("in.queue.count").register(registry);
 		beatTimer = Timer.builder("beat.time").register(registry);
+		eurekaTimer = Timer.builder("eureka.time").register(registry);
 	}
 	
 	@PostConstruct
@@ -73,6 +81,17 @@ public class BeatService {
 		Executors.newSingleThreadScheduledExecutor().scheduleAtFixedRate(() -> {
 			beat();
 		}, 1, 1, TimeUnit.SECONDS);
+		
+		if (StringUtils.isNotEmpty(beatConfig.getEureka())) {
+			Executors.newSingleThreadScheduledExecutor().scheduleAtFixedRate(() -> {
+				refresh();
+			}, 0, 10, TimeUnit.SECONDS);
+		}
+	}
+	
+	private void refresh() {
+		List<String> hosts = getEurekaHosts(beatConfig.getEureka());
+		beatConfig.setHosts(hosts);
 	}
 	
 	private void beat() {
@@ -109,6 +128,13 @@ public class BeatService {
 		if (function != null) {
 			List<RawData> datas = function.apply(content);
 			LOG.info("get data, host: {}, bytes: {}, size: {}", host, content.length(), datas.size());
+			
+			// 过滤名称
+			datas = datas.stream().filter(
+					data -> beatConfig.getExcludes() == null || !beatConfig.getExcludes().contains(data.getName())
+			).collect(Collectors.toList());
+			
+			// 添加属性
 			datas.forEach(data -> {
 				data.setHost(uri.getHost());
 				data.setPort(uri.getPort());
@@ -192,4 +218,62 @@ public class BeatService {
 		return list;
 	}
 	
+	@SuppressWarnings("rawtypes")
+	private List<String> getEurekaHosts(String eureka) {
+		HttpHeaders headers = new HttpHeaders();
+		headers.setContentType(MediaType.APPLICATION_JSON);
+		HttpEntity<?> entity = new HttpEntity<>("parameters", headers);
+		
+		
+		List<String> hosts = new ArrayList<>();
+		eurekaTimer.record(() -> {
+			ResponseEntity<Map> resp = restTemplate.exchange(eureka, HttpMethod.GET, entity, Map.class);
+			@SuppressWarnings("unchecked")
+			Map<String, Object> map = resp.getBody();
+			lookup(hosts, new StringBuilder(), map);
+		});
+
+		return hosts;
+	}
+
+	@SuppressWarnings({ "unchecked", "rawtypes" })
+	private void lookup(List<String> hosts, StringBuilder status, Map<String, Object> map) {
+		LOG.debug("{}", map);
+		
+		for (Entry<String, Object> entry : map.entrySet()) {
+			if (entry.getValue() instanceof Map) {
+				lookup(hosts, status, (Map)entry.getValue());
+			} else if (entry.getValue() instanceof List) {
+				lookup(hosts, status, (List)entry.getValue());
+			} else {
+				if (StringUtils.equals(entry.getKey(), "status")) {
+					status.delete(0, status.length());
+					status.append(entry.getValue());
+				} else if (StringUtils.equals(entry.getKey(), "statusPageUrl")) {
+					String host = entry.getValue().toString();
+					if (StringUtils.endsWith(host, "/actuator/info")) {
+						host = StringUtils.replace(host, "/info", "/prometheus");
+					} else if (StringUtils.endsWith(host, "/info")) {
+						host = StringUtils.replace(host, "/info", "/metrics");
+					}
+					LOG.debug("{}, {}", status.toString(), host);
+					hosts.add(host);
+				}
+			}
+		}
+	}
+	
+	@SuppressWarnings({ "unchecked", "rawtypes" })
+	private void lookup(List<String> hosts, StringBuilder status, List<Object> list) {
+		LOG.debug("{}", list);
+		
+		for (Object value : list) {
+			if (value instanceof Map) {
+				lookup(hosts, status, (Map)value);
+			} else if (value instanceof List) {
+				lookup(hosts, status, (List)value);
+			}
+		}
+	}
+
 }
