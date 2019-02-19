@@ -31,6 +31,7 @@ import cn.batchfile.metrics.collector.config.BeatConfig;
 import cn.batchfile.metrics.collector.domain.RawData;
 import cn.batchfile.metrics.collector.functions.PrometheusDataParser;
 import cn.batchfile.metrics.collector.functions.SpringBootDataParser;
+import cn.batchfile.metrics.collector.functions.YammerDataParser;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -68,6 +69,7 @@ public class BeatService {
 	public void init() {
 		PARSERS.put("/metrics", new SpringBootDataParser());
 		PARSERS.put("/actuator/prometheus", new PrometheusDataParser());
+		PARSERS.put("/yammer/metrics", new YammerDataParser());
 		
 		Executors.newSingleThreadScheduledExecutor().scheduleAtFixedRate(() -> {
 			beat();

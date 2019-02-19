@@ -39,7 +39,12 @@ public class PrometheusDataParser implements Function<StringBuilder, List<RawDat
 		for (List<String> group : groups) {
 			String[] ary = StringUtils.split(StringUtils.substringAfter(group.get(0), "# TYPE "), " ");
 			String name = ary[0];
-			Type type = Type.valueOf(StringUtils.upperCase(ary[1]));
+			Type type = null;
+			try {
+				type = Type.valueOf(StringUtils.upperCase(ary[1]));
+			} catch (Exception e) {
+				type = Type.UNTYPED;
+			}
 
 			for (int i = 1; i < group.size(); i ++) {
 				String t = StringUtils.substringBetween(group.get(i), "{", "}");
