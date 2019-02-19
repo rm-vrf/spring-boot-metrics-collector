@@ -25,6 +25,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import cn.batchfile.metrics.collector.config.ElasticsearchConfig;
 import cn.batchfile.metrics.collector.domain.MetricData;
 import cn.batchfile.metrics.collector.domain.RawData;
+import cn.batchfile.metrics.collector.functions.DefaultMetricsComposer;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -32,6 +33,7 @@ import io.micrometer.core.instrument.Timer;
 @Service
 public class ElasticsearchService {
 	private static final Logger LOG = LoggerFactory.getLogger(ElasticsearchService.class);
+	private static final String USELESS_DATA_ID = "useless_data_for_auto_mapping";
 	private static ThreadLocal<ObjectMapper> MAPPER = new ThreadLocal<ObjectMapper>() {
 		protected ObjectMapper initialValue() {
 			return new ObjectMapper();
@@ -101,13 +103,17 @@ public class ElasticsearchService {
 		LOG.debug("get metrics, size: {}", metrics.size());
 		
 		final String indexName = new SimpleDateFormat(elasticsearchConfig.getIndex()).format(new Date());
-		List<String> lines = metrics.stream().map(metric -> composeLine(metric, indexName)).collect(Collectors.toList());
+		List<String> lines = metrics.stream().map(metric -> composeLine(metric, indexName, null)).collect(Collectors.toList());
 		LOG.debug("get lines, size: {}", lines.size());
+		
+		//insert auto mapping data
+		MetricData metricData = autoMappingData();
+		lines.add(0, composeLine(metricData, indexName, metricData.getMetric()));
 		
 		List<String> hosts = elasticsearchConfig.getHosts();
 		String host = hosts.size() == 1 ? hosts.get(0) : hosts.get(new Random().nextInt(hosts.size()));
 		
-		String url = String.format("http://%s/_bulk", host);
+		final String url = String.format("http://%s/_bulk", host);
 		String body = StringUtils.join(lines, "\n");
 		
 		writeTimer.record(() -> {
@@ -121,10 +127,18 @@ public class ElasticsearchService {
 				LOG.error("elasticsearch error, status: {}, message: {}", status.value(), resp.toString());
 			}
 		});
+		
+		// delete auto mapping data
+		restTemplate.delete(String.format("http://%s/%s/metric/%s", host, indexName, USELESS_DATA_ID));
 	}
 	
-	private String composeLine(MetricData metric, String indexName) {
-		String s = String.format("{\"index\":{\"_index\":\"%s\",\"_type\":\"metric\"}}\n", indexName);
+	private String composeLine(MetricData metric, String index, String id) {
+		String s = null;
+		if (id == null) {
+			s = String.format("{\"index\":{\"_index\":\"%s\",\"_type\":\"metric\"}}\n", index);
+		} else {
+			s = String.format("{\"index\":{\"_index\":\"%s\",\"_type\":\"metric\",\"_id\":\"%s\"}}\n", index, id);
+		}
 		try { 
 			s += MAPPER.get().writeValueAsString(metric);
 			return s;
@@ -133,4 +147,12 @@ public class ElasticsearchService {
 		}
 	}
 	
+	private MetricData autoMappingData() {
+		MetricData metric = new MetricData();
+		metric.setMetric(USELESS_DATA_ID);
+		metric.setTimestamp(DefaultMetricsComposer.FORMATTER.get().format(new Date()));
+		metric.setValue(Double.MAX_VALUE);
+		return metric;
+	}
+
 }
