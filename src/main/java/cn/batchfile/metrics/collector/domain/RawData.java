@@ -1,11 +1,15 @@
 package cn.batchfile.metrics.collector.domain;
 
+import java.util.Map;
+
 public class RawData {
 	
 	public enum Type {
 		COUNTER,
 		GAUGE,
 		SUMMARY,
+	    HISTOGRAM,
+	    UNTYPED,
 	}
 
 	private String host;
@@ -13,9 +17,8 @@ public class RawData {
 	private long time;
 	private Type type;
 	private String name;
-	private String tags;
-	private double value1;
-	private double value2;
+	private Map<String, String> tags;
+	private double[] values;
 
 	public String getHost() {
 		return host;
@@ -57,28 +60,20 @@ public class RawData {
 		this.name = name;
 	}
 
-	public String getTags() {
+	public Map<String, String> getTags() {
 		return tags;
 	}
 
-	public void setTags(String tags) {
+	public void setTags(Map<String, String> tags) {
 		this.tags = tags;
 	}
 
-	public double getValue1() {
-		return value1;
+	public double[] getValues() {
+		return values;
 	}
 
-	public void setValue1(double value1) {
-		this.value1 = value1;
+	public void setValues(double[] values) {
+		this.values = values;
 	}
 
-	public double getValue2() {
-		return value2;
-	}
-
-	public void setValue2(double value2) {
-		this.value2 = value2;
-	}
-	
 }

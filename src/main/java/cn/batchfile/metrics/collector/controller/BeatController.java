@@ -1,4 +1,4 @@
-package cn.batchfile.metrics.collector.api;
+package cn.batchfile.metrics.collector.controller;
 
 import java.util.ArrayList;
 import java.util.List;

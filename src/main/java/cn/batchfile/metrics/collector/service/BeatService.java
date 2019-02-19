@@ -27,12 +27,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
-
 import cn.batchfile.metrics.collector.config.BeatConfig;
 import cn.batchfile.metrics.collector.domain.RawData;
-import cn.batchfile.metrics.collector.domain.RawData.Type;
+import cn.batchfile.metrics.collector.functions.PrometheusDataParser;
+import cn.batchfile.metrics.collector.functions.SpringBootDataParser;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -41,12 +39,7 @@ import io.micrometer.core.instrument.Timer;
 public class BeatService {
 	
 	private static final Logger LOG = LoggerFactory.getLogger(BeatService.class);
-	private static Map<String, Function<StringBuilder, List<RawData>>> DRIVERS = new HashMap<String, Function<StringBuilder, List<RawData>>>();
-	private static ThreadLocal<ObjectMapper> MAPPER = new ThreadLocal<ObjectMapper>() {
-		protected ObjectMapper initialValue() {
-			return new ObjectMapper();
-		};
-	};
+	private Map<String, Function<StringBuilder, List<RawData>>> PARSERS = new HashMap<String, Function<StringBuilder, List<RawData>>>();
 	private Counter beatCounter;
 	private Counter errorCounter;
 	private Counter inQueueCounter;
@@ -63,11 +56,6 @@ public class BeatService {
 	@Autowired
 	private RestTemplate restTemplate;
 	
-	static {
-		DRIVERS.put("/metrics", BeatService::parseSpringBootRawData);
-		DRIVERS.put("/actuator/prometheus", BeatService::parsePrometheusRawData);
-	}
-	
 	public BeatService(MeterRegistry registry) {
 		beatCounter = Counter.builder("beat.ok.count").register(registry);
 		errorCounter = Counter.builder("beat.error.count").register(registry);
@@ -78,6 +66,9 @@ public class BeatService {
 	
 	@PostConstruct
 	public void init() {
+		PARSERS.put("/metrics", new SpringBootDataParser());
+		PARSERS.put("/actuator/prometheus", new PrometheusDataParser());
+		
 		Executors.newSingleThreadScheduledExecutor().scheduleAtFixedRate(() -> {
 			beat();
 		}, 1, 1, TimeUnit.SECONDS);
@@ -124,7 +115,7 @@ public class BeatService {
 		});
 		LOG.debug("html: {}", content);
 		
-		Function<StringBuilder, List<RawData>> function = DRIVERS.get(uri.getPath());
+		Function<StringBuilder, List<RawData>> function = PARSERS.get(uri.getPath());
 		if (function != null) {
 			List<RawData> datas = function.apply(content);
 			LOG.info("get data, host: {}, bytes: {}, size: {}", host, content.length(), datas.size());
@@ -146,76 +137,6 @@ public class BeatService {
 				inQueueCounter.increment(datas.size());
 			}
 		}
-	}
-	
-	private static List<RawData> parseSpringBootRawData(StringBuilder content) {
-		Map<String, Double> map = null;
-		if (content.length() > 0) {
-			try {
-				map = MAPPER.get().readValue(content.toString(), new TypeReference<Map<String, Double>>() {});
-			} catch (Exception e) {
-				LOG.error("error when deserialize content", e);
-			}
-		}
-		
-		List<RawData> list = new ArrayList<>();
-		if (map != null) {
-			for (Entry<String, Double> entry : map.entrySet()) {
-				RawData data = new RawData();
-				data.setName(entry.getKey());
-				data.setValue1(entry.getValue());
-				data.setType(data.getName().startsWith("counter.") ? Type.COUNTER : Type.GAUGE);
-				list.add(data);
-			}
-		}
-		
-		return list;
-	}
-	
-	private static List<RawData> parsePrometheusRawData(StringBuilder content) {
-		List<RawData> list = new ArrayList<>();
-		final String[] lines = StringUtils.split(StringUtils.remove(content.toString(), '\r'), '\n');
-		
-		// group by name
-		List<List<String>> groups = new ArrayList<>();
-		List<String> g = null;
-		for (String line : lines) {
-			if (StringUtils.startsWith(line, "# HELP ")) {
-				if (g != null) {
-					groups.add(g);
-				}
-				g = new ArrayList<>();
-			} else {
-				g.add(line);
-			}
-		}
-		if (g != null) {
-			groups.add(g);
-		}
-		
-		// create data
-		for (List<String> group : groups) {
-			String[] ary = StringUtils.split(StringUtils.substringAfter(group.get(0), "# TYPE "), " ");
-			String name = ary[0];
-			Type type = Type.valueOf(StringUtils.upperCase(ary[1]));
-
-			for (int i = 1; i < group.size(); i ++) {
-				RawData data = new RawData();
-				data.setName(name);
-				data.setType(type);
-				data.setTags(StringUtils.substringBetween(group.get(i), "{", "}"));
-				Double value1 = Double.valueOf(StringUtils.substringAfterLast(group.get(i), " "));
-				data.setValue1(value1);
-				if (type == Type.SUMMARY) {
-					i ++;
-					Double value2 = Double.valueOf(StringUtils.substringAfterLast(group.get(i), " "));
-					data.setValue2(value2);
-				}
-				list.add(data);
-			}
-		}
-		
-		return list;
 	}
 	
 	@SuppressWarnings("rawtypes")
