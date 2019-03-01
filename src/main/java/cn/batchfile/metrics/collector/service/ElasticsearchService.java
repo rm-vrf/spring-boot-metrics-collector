@@ -25,7 +25,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import cn.batchfile.metrics.collector.config.ElasticsearchConfig;
 import cn.batchfile.metrics.collector.domain.MetricData;
 import cn.batchfile.metrics.collector.domain.RawData;
-import cn.batchfile.metrics.collector.functions.DefaultMetricsComposer;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -33,7 +32,6 @@ import io.micrometer.core.instrument.Timer;
 @Service
 public class ElasticsearchService {
 	private static final Logger LOG = LoggerFactory.getLogger(ElasticsearchService.class);
-	private static final String USELESS_DATA_ID = "useless_data_for_auto_mapping";
 	private static ThreadLocal<ObjectMapper> MAPPER = new ThreadLocal<ObjectMapper>() {
 		protected ObjectMapper initialValue() {
 			return new ObjectMapper();
@@ -103,33 +101,61 @@ public class ElasticsearchService {
 		LOG.debug("get metrics, size: {}", metrics.size());
 		
 		final String indexName = new SimpleDateFormat(elasticsearchConfig.getIndex()).format(new Date());
-		List<String> lines = metrics.stream().map(metric -> composeLine(metric, indexName, null)).collect(Collectors.toList());
-		LOG.debug("get lines, size: {}", lines.size());
-		
-		//insert auto mapping data
-		MetricData metricData = autoMappingData();
-		lines.add(0, composeLine(metricData, indexName, metricData.getMetric()));
-		
 		List<String> hosts = elasticsearchConfig.getHosts();
 		String host = hosts.size() == 1 ? hosts.get(0) : hosts.get(new Random().nextInt(hosts.size()));
+		
+		if (elasticsearchConfig.isBulk()) {
+			writeBulk(metrics, indexName, host);
+		} else {
+			for (MetricData metric : metrics) {
+				writeSingle(metric, indexName, host);
+			}
+		}
+	}
+	
+	private void writeSingle(MetricData metric, final String indexName, String host) {
+		LOG.debug("write metric: {}", metric.getMetric());
+		final String url = String.format("http://%s/%s/metric", host, indexName);
+		try {
+			String body = MAPPER.get().writeValueAsString(metric);
+			writeTimer.record(() -> {
+				ResponseEntity<String> resp = restTemplate.postForEntity(url, body, String.class);
+				String responseBody = resp.getBody();
+				LOG.debug(responseBody);
+				HttpStatus status = resp.getStatusCode();
+				if (status.is2xxSuccessful()) {
+					writeCounter.increment();
+					LOG.debug("write data to elasticsearch, name: {}", metric.getMetric());
+				} else {
+					errorCounter.increment();
+					LOG.error("elasticsearch error, status: {}, message: {}", status.value(), resp.toString());
+				}
+			});
+		} catch (Exception e) {
+			LOG.error("error when write metric, name: " + metric.getMetric(), e);
+		}
+	}
+	
+	private void writeBulk(List<MetricData> metrics, final String indexName, String host) {
+		List<String> lines = metrics.stream().map(metric -> composeLine(metric, indexName, null)).collect(Collectors.toList());
+		LOG.debug("get lines, size: {}", lines.size());
 		
 		final String url = String.format("http://%s/_bulk", host);
 		String body = StringUtils.join(lines, "\n");
 		
 		writeTimer.record(() -> {
 			ResponseEntity<String> resp = restTemplate.postForEntity(url, body, String.class);
+			String responseBody = resp.getBody();
+			LOG.debug(responseBody);
 			HttpStatus status = resp.getStatusCode();
 			if (status.is2xxSuccessful()) {
 				writeCounter.increment();
-				LOG.info("write data to elasticsearch, size: {}", datas.size());
+				LOG.info("write data to elasticsearch, size: {}", metrics.size());
 			} else {
 				errorCounter.increment();
 				LOG.error("elasticsearch error, status: {}, message: {}", status.value(), resp.toString());
 			}
 		});
-		
-		// delete auto mapping data
-		restTemplate.delete(String.format("http://%s/%s/metric/%s", host, indexName, USELESS_DATA_ID));
 	}
 	
 	private String composeLine(MetricData metric, String index, String id) {
@@ -147,12 +173,4 @@ public class ElasticsearchService {
 		}
 	}
 	
-	private MetricData autoMappingData() {
-		MetricData metric = new MetricData();
-		metric.setMetric(USELESS_DATA_ID);
-		metric.setTimestamp(DefaultMetricsComposer.FORMATTER.get().format(new Date()));
-		metric.setValue(Double.MAX_VALUE);
-		return metric;
-	}
-
 }
