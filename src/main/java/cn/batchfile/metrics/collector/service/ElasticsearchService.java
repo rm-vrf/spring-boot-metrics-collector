@@ -4,10 +4,10 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.stream.Collectors;
 
 import javax.annotation.PostConstruct;
 
@@ -20,6 +20,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import cn.batchfile.metrics.collector.config.ElasticsearchConfig;
@@ -98,7 +99,7 @@ public class ElasticsearchService {
 		datas.forEach(data -> {
 			metrics.addAll(metricService.compose(data));
 		});
-		LOG.debug("get metrics, size: {}", metrics.size());
+		LOG.debug("metrics, size: {}", metrics.size());
 		
 		final String indexName = new SimpleDateFormat(elasticsearchConfig.getIndex()).format(new Date());
 		List<String> hosts = elasticsearchConfig.getHosts();
@@ -137,16 +138,28 @@ public class ElasticsearchService {
 	}
 	
 	private void writeBulk(List<MetricData> metrics, final String indexName, String host) {
-		List<String> lines = metrics.stream().map(metric -> composeLine(metric, indexName, null)).collect(Collectors.toList());
-		LOG.debug("get lines, size: {}", lines.size());
+		List<String> lines = new ArrayList<>();
+		for (MetricData metric : metrics) {
+			composeLine(lines, metric, indexName, null);
+		}
+		LOG.debug("line count: {}", lines.size());
 		
 		final String url = String.format("http://%s/_bulk", host);
-		String body = StringUtils.join(lines, "\n");
+		String body = StringUtils.join(lines, "");
 		
 		writeTimer.record(() -> {
 			ResponseEntity<String> resp = restTemplate.postForEntity(url, body, String.class);
-			String responseBody = resp.getBody();
-			LOG.debug(responseBody);
+			if (LOG.isDebugEnabled()) {
+				LOG.debug("response status: {}", resp.getStatusCode().toString());
+				String json = resp.getBody();
+				try {
+					Map<String, Object> map = MAPPER.get().readValue(json, new TypeReference<Map<String, Object>>() {});
+					List<?> items = (List<?>)map.get("items");
+					LOG.debug("items: {}", items.size());
+				} catch (Exception e) {
+					//pass
+				}
+			}
 			HttpStatus status = resp.getStatusCode();
 			if (status.is2xxSuccessful()) {
 				writeCounter.increment();
@@ -158,18 +171,24 @@ public class ElasticsearchService {
 		});
 	}
 	
-	private String composeLine(MetricData metric, String index, String id) {
-		String s = null;
+	private void composeLine(List<String> lines, MetricData metric, String index, String id) {
+		String s0 = null;
 		if (id == null) {
-			s = String.format("{\"index\":{\"_index\":\"%s\",\"_type\":\"metric\"}}\n", index);
+			s0 = String.format("{\"index\":{\"_index\":\"%s\",\"_type\":\"metric\"}}\n", index);
 		} else {
-			s = String.format("{\"index\":{\"_index\":\"%s\",\"_type\":\"metric\",\"_id\":\"%s\"}}\n", index, id);
+			s0 = String.format("{\"index\":{\"_index\":\"%s\",\"_type\":\"metric\",\"_id\":\"%s\"}}\n", index, id);
 		}
+		
+		String s1 = null;
 		try { 
-			s += MAPPER.get().writeValueAsString(metric);
-			return s;
+			s1 = MAPPER.get().writeValueAsString(metric) + '\n';
 		} catch (Exception e) {
-			return null;
+			throw new RuntimeException("error when convert metric data to json", e);
+		}
+		
+		if (s0 != null && s1 != null) {
+			lines.add(s0);
+			lines.add(s1);
 		}
 	}
 	
