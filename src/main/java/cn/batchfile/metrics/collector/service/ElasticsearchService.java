@@ -105,36 +105,7 @@ public class ElasticsearchService {
 		List<String> hosts = elasticsearchConfig.getHosts();
 		String host = hosts.size() == 1 ? hosts.get(0) : hosts.get(new Random().nextInt(hosts.size()));
 		
-		if (elasticsearchConfig.isBulk()) {
-			writeBulk(metrics, indexName, host);
-		} else {
-			for (MetricData metric : metrics) {
-				writeSingle(metric, indexName, host);
-			}
-		}
-	}
-	
-	private void writeSingle(MetricData metric, final String indexName, String host) {
-		LOG.debug("write metric: {}", metric.getMetric());
-		final String url = String.format("http://%s/%s/metric", host, indexName);
-		try {
-			String body = MAPPER.get().writeValueAsString(metric);
-			writeTimer.record(() -> {
-				ResponseEntity<String> resp = restTemplate.postForEntity(url, body, String.class);
-				String responseBody = resp.getBody();
-				LOG.debug(responseBody);
-				HttpStatus status = resp.getStatusCode();
-				if (status.is2xxSuccessful()) {
-					writeCounter.increment();
-					LOG.debug("write data to elasticsearch, name: {}", metric.getMetric());
-				} else {
-					errorCounter.increment();
-					LOG.error("elasticsearch error, status: {}, message: {}", status.value(), resp.toString());
-				}
-			});
-		} catch (Exception e) {
-			LOG.error("error when write metric, name: " + metric.getMetric(), e);
-		}
+		writeBulk(metrics, indexName, host);
 	}
 	
 	private void writeBulk(List<MetricData> metrics, final String indexName, String host) {

@@ -16,7 +16,6 @@ public class ElasticsearchConfig {
 	private int maxRetries;
 	private int bulkMaxSize;
 	private int timeout;
-	private boolean bulk = true;
 
 	public boolean isEnabled() {
 		return enabled;
@@ -72,14 +71,6 @@ public class ElasticsearchConfig {
 
 	public void setTimeout(int timeout) {
 		this.timeout = timeout;
-	}
-
-	public boolean isBulk() {
-		return bulk;
-	}
-
-	public void setBulk(boolean bulk) {
-		this.bulk = bulk;
 	}
 
 }
