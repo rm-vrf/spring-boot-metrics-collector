@@ -56,6 +56,9 @@ output.elasticsearch:
   # The maximum number of events to bulk in a single Elasticsearch bulk API index request.
   # The default is 50.
   bulk_max_size: 50
+  
+  # Boolean flag to omit zero value.
+  omit_zero: true
 ```
 
 启动：
