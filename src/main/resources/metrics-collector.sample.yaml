@@ -115,3 +115,6 @@ output.elasticsearch:
   
   # Configure http request timeout before failing a request to Elasticsearch.
   timeout: 90
+  
+  # Boolean flag to omit zero value.
+  omit_zero: false

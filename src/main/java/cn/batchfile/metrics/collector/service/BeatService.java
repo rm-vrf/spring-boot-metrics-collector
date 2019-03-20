@@ -69,6 +69,7 @@ public class BeatService {
 	public void init() {
 		PARSERS.put("/metrics", new SpringBootDataParser());
 		PARSERS.put("/actuator/prometheus", new PrometheusDataParser());
+		PARSERS.put("/prometheus", new PrometheusDataParser());
 		PARSERS.put("/yammer/metrics", new YammerDataParser());
 		
 		Executors.newSingleThreadScheduledExecutor().scheduleAtFixedRate(() -> {

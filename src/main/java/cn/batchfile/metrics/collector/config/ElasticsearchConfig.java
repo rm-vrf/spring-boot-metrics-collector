@@ -16,6 +16,7 @@ public class ElasticsearchConfig {
 	private int maxRetries;
 	private int bulkMaxSize;
 	private int timeout;
+	private boolean omitZero;
 
 	public boolean isEnabled() {
 		return enabled;
@@ -71,6 +72,14 @@ public class ElasticsearchConfig {
 
 	public void setTimeout(int timeout) {
 		this.timeout = timeout;
+	}
+
+	public boolean isOmitZero() {
+		return omitZero;
+	}
+
+	public void setOmitZero(boolean omitZero) {
+		this.omitZero = omitZero;
 	}
 
 }

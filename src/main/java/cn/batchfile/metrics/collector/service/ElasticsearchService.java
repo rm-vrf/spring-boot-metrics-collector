@@ -3,6 +3,7 @@ package cn.batchfile.metrics.collector.service;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -95,10 +96,18 @@ public class ElasticsearchService {
 	}
 	
 	private void write(List<RawData> datas) {
-		List<MetricData> metrics = new ArrayList<>();
+		final List<MetricData> metrics = new ArrayList<>();
 		datas.forEach(data -> {
 			metrics.addAll(metricService.compose(data));
 		});
+		if (elasticsearchConfig.isOmitZero()) {
+			Iterator<MetricData> it = metrics.iterator();
+			while (it.hasNext()) {
+				if (it.next().getValue() == 0.0) {
+					it.remove();
+				}
+			}
+		}
 		LOG.debug("metrics, size: {}", metrics.size());
 		
 		final String indexName = new SimpleDateFormat(elasticsearchConfig.getIndex()).format(new Date());
