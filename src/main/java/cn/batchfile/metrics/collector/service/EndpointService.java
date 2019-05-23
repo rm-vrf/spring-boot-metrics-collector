@@ -74,7 +74,7 @@ public class EndpointService {
 	}
 	
 	private void refresh() {
-		if (StringUtils.isNotEmpty(beatConfig.getEureka())) {
+		if (beatConfig != null && StringUtils.isNotEmpty(beatConfig.getEureka())) {
 			List<String> hosts = getEurekaHosts(beatConfig.getEureka());
 			this.hosts = hosts;
 		}

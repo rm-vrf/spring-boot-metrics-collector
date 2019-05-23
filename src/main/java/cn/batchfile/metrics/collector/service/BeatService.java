@@ -18,7 +18,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+
 import cn.batchfile.metrics.collector.config.BeatConfig;
+import cn.batchfile.metrics.collector.domain.MetricData;
 import cn.batchfile.metrics.collector.domain.RawData;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -30,6 +33,7 @@ public class BeatService {
 	private static final Logger LOG = LoggerFactory.getLogger(BeatService.class);
 	private Counter beatCounter;
 	private Counter errorCounter;
+	private Counter rawDataCounter;
 	private Counter inQueueCounter;
 	private Timer beatTimer;
 	private long lastRun = 0;
@@ -46,10 +50,14 @@ public class BeatService {
 	@Autowired
 	private EndpointService endpointService;
 	
+	@Autowired
+	private MetricService metricService;
+	
 	public BeatService(MeterRegistry registry) {
 		beatCounter = Counter.builder("beat.ok.count").register(registry);
 		errorCounter = Counter.builder("beat.error.count").register(registry);
-		inQueueCounter = Counter.builder("in.queue.count").register(registry);
+		rawDataCounter = Counter.builder("beat.raw.data.count").register(registry);
+		inQueueCounter = Counter.builder("beat.in.queue.count").register(registry);
 		beatTimer = Timer.builder("beat.time").register(registry);
 	}
 	
@@ -83,7 +91,7 @@ public class BeatService {
 		if (now - lastRun >= beatConfig.getPeriod() * 1000) {
 			hosts.parallelStream().forEach(host -> {
 				try {
-					beat(host);
+					beatHost(host);
 				} catch (Exception e) {
 					LOG.error("error when get metrics, host: " + host, e);
 				}
@@ -92,7 +100,7 @@ public class BeatService {
 		}
 	}
 	
-	private void beat(String host) throws URISyntaxException {
+	private void beatHost(String host) throws URISyntaxException, JsonProcessingException {
 		LOG.debug("get data from host: {}", host);
 		URI uri = new URI(host);
 		
@@ -124,10 +132,19 @@ public class BeatService {
 				data.setPort(uri.getPort());
 				data.setTime(time.getTime());
 			});
+			rawDataCounter.increment(datas.size());
 			
+			// 计算指标数据
 			if (datas.size() > 0) {
-				queueService.put(datas);
-				inQueueCounter.increment(datas.size());
+				List<MetricData> metrics = new ArrayList<>(datas.size());
+				for (RawData data : datas) {
+					List<MetricData> list = metricService.compose(data);
+					if (list != null) {
+						metrics.addAll(list);
+					}
+				}
+				queueService.in(metrics);
+				inQueueCounter.increment(metrics.size());
 			}
 		}
 	}

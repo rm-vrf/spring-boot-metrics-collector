@@ -1,68 +1,51 @@
 package cn.batchfile.metrics.collector.service;
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.atomic.AtomicInteger;
 
-import org.apache.commons.lang3.StringUtils;
+import javax.jms.JMSException;
+import javax.jms.Message;
+import javax.jms.Session;
+import javax.jms.Topic;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jms.core.JmsTemplate;
+import org.springframework.jms.core.MessageCreator;
 import org.springframework.stereotype.Service;
 
-import cn.batchfile.metrics.collector.config.QueueConfig;
-import cn.batchfile.metrics.collector.domain.RawData;
-import io.micrometer.core.instrument.Gauge;
-import io.micrometer.core.instrument.MeterRegistry;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import cn.batchfile.metrics.collector.domain.MetricData;
 
 @Service
 public class QueueService {
-	
-	private ConcurrentLinkedQueue<RawData> memoryQueue = new ConcurrentLinkedQueue<>();
-	private AtomicInteger count = new AtomicInteger(0);
+	private static final Logger LOG = LoggerFactory.getLogger(QueueService.class);
+	private static ThreadLocal<ObjectMapper> MAPPER = new ThreadLocal<ObjectMapper>() {
+		protected ObjectMapper initialValue() {
+			return new ObjectMapper();
+		}
+	};
 
 	@Autowired
-	private QueueConfig queueConfig;
+    private JmsTemplate jmsTemplate;
 	
-	public QueueService(MeterRegistry registry) {
-		Gauge.builder("queue.size", StringUtils.EMPTY, s -> count.get()).register(registry);
-	}
+	@Autowired
+    private Topic topic;
 	
-	public List<RawData> get(int max) {
-		List<RawData> list = new ArrayList<>();
-		RawData data = null;
-		while ((data = memoryQueue.poll()) != null) {
-			count.decrementAndGet();
-			list.add(data);
-		}
-		
-		return list;
-	}
-	
-	public void put(RawData rawData) {
-		while (count.get() >= queueConfig.getMem().getEvents()) {
-			try {
-				Thread.sleep(1000);
-			} catch (Exception e) {
-				
+	public void in(List<MetricData> metrics) {
+		jmsTemplate.send(topic, new MessageCreator() {
+			@Override
+			public Message createMessage(Session session) throws JMSException {
+				try {
+					String text = MAPPER.get().writeValueAsString(metrics);
+					return session.createTextMessage(text);
+				} catch (JsonProcessingException e) {
+					throw new RuntimeException("error when convert message", e);
+				}
 			}
-		}
-	
-		memoryQueue.add(rawData);
-		count.incrementAndGet();
+		});
+		LOG.info("send metrics in queue, size: {}", metrics.size());
 	}
-	
-	public void put(List<RawData> rawDatas) {
-		while (count.get() >= queueConfig.getMem().getEvents()) {
-			try {
-				Thread.sleep(1000);
-			} catch (Exception e) {
-				
-			}
-		}
-	
-		memoryQueue.addAll(rawDatas);
-		count.addAndGet(rawDatas.size());
-	}
-	
-	
 }
