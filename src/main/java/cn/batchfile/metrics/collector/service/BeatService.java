@@ -18,8 +18,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-
 import cn.batchfile.metrics.collector.config.BeatConfig;
 import cn.batchfile.metrics.collector.domain.MetricData;
 import cn.batchfile.metrics.collector.domain.RawData;
@@ -100,7 +98,7 @@ public class BeatService {
 		}
 	}
 	
-	private void beatHost(String host) throws URISyntaxException, JsonProcessingException {
+	private void beatHost(String host) throws InterruptedException, URISyntaxException {
 		LOG.debug("get data from host: {}", host);
 		URI uri = new URI(host);
 		
@@ -143,7 +141,11 @@ public class BeatService {
 						metrics.addAll(list);
 					}
 				}
-				queueService.in(metrics);
+				
+				for (MetricData metric : metrics) {
+					queueService.put(metric);
+				}
+				
 				inQueueCounter.increment(metrics.size());
 			}
 		}

@@ -1,51 +1,75 @@
 package cn.batchfile.metrics.collector.service;
 
+import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 
-import javax.jms.JMSException;
-import javax.jms.Message;
-import javax.jms.Session;
-import javax.jms.Topic;
+import javax.annotation.PreDestroy;
 
+import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.jms.core.JmsTemplate;
-import org.springframework.jms.core.MessageCreator;
 import org.springframework.stereotype.Service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-
+import cn.batchfile.metrics.collector.config.QueueConfig;
 import cn.batchfile.metrics.collector.domain.MetricData;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
 
 @Service
 public class QueueService {
 	private static final Logger LOG = LoggerFactory.getLogger(QueueService.class);
-	private static ThreadLocal<ObjectMapper> MAPPER = new ThreadLocal<ObjectMapper>() {
-		protected ObjectMapper initialValue() {
-			return new ObjectMapper();
+	private List<BlockingQueue<MetricData>> queues = new ArrayList<>();
+	private boolean run = true;
+	
+	@Autowired
+	private QueueConfig queueConfig;
+	
+	public QueueService(MeterRegistry registry) {
+		Gauge.builder("queue.size", StringUtils.EMPTY, (s) -> {
+			Iterator<BlockingQueue<MetricData>> iter = queues.iterator();
+			long i = 0;
+			while (iter.hasNext()) {
+				i += iter.next().size();
+			}
+			return i;
+		}).register(registry);
+	}
+	
+	@PreDestroy
+	public void destroy() {
+		run = false;
+	}
+	
+	public void put(MetricData metric) throws InterruptedException {
+		Iterator<BlockingQueue<MetricData>> iter = queues.iterator();
+		while (iter.hasNext()) {
+			BlockingQueue<MetricData> queue = iter.next();
+			if (!queue.offer(metric, 1, TimeUnit.SECONDS)) {
+				LOG.warn("Access queue memory limit!");
+			}
 		}
-	};
-
-	@Autowired
-    private JmsTemplate jmsTemplate;
+	}
 	
-	@Autowired
-    private Topic topic;
-	
-	public void in(List<MetricData> metrics) {
-		jmsTemplate.send(topic, new MessageCreator() {
-			@Override
-			public Message createMessage(Session session) throws JMSException {
+	public void consume(Consumer consumer) {
+		BlockingQueue<MetricData> queue = new LinkedBlockingQueue<>(queueConfig.getMem().getEvents());
+		queues.add(queue);
+		new Thread(() -> {
+			while (run) {
 				try {
-					String text = MAPPER.get().writeValueAsString(metrics);
-					return session.createTextMessage(text);
-				} catch (JsonProcessingException e) {
-					throw new RuntimeException("error when convert message", e);
+					MetricData metric = queue.poll(1, TimeUnit.SECONDS);
+					if (metric != null) {
+						consumer.consume(metric);
+					}
+				} catch (Exception e) {
+					LOG.error("error when consumer data " + consumer.toString(), e);
 				}
 			}
-		});
-		LOG.info("send metrics in queue, size: {}", metrics.size());
+		}).start();
 	}
+	
 }
