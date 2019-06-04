@@ -137,7 +137,7 @@ public class ElasticsearchService {
 					writeCounter.increment();
 					break;
 				} catch (Exception e) {
-					if (i++ >= elasticsearchConfig.getMaxRetries()) {
+					if (++i >= elasticsearchConfig.getMaxRetries()) {
 						LOG.error("error when write elasticsearch", e);
 						errorCounter.increment();
 						//throw new RuntimeException("error when write elasticsearch", e);
