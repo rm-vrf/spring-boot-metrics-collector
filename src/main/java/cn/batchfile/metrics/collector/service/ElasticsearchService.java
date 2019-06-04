@@ -67,7 +67,7 @@ public class ElasticsearchService {
 	@PostConstruct
 	public void init() {
 		if (!elasticsearchConfig.isEnabled()) {
-			LOG.info("ELASTICSEARCH DISABLED");
+			LOG.info("ELASTICSEARCH OUTPUT DISABLED");
 			return;
 		}
 		

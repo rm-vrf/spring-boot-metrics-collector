@@ -35,9 +35,24 @@ beat:
     - "system.load.average.1m"
     - "tomcat.global.error"
 
+#================================ General ======================================
+
+# Internal queue configuration for buffering events to be published.
+queue:
+# Queue type by name (default 'mem')
+  # The memory queue will present all available events (up to the outputs
+  # bulk_max_size) to the output, the moment the output is ready to server
+  # another batch of events.
+  mem:
+    # Max number of events the queue can buffer.
+    events: 4096
+
 #-------------------------- Elasticsearch output -------------------------------
 output.elasticsearch:
 
+  # Boolean flag to enable or disable the output module.
+  enabled: true
+  
   # Array of hosts to connect to.
   # Scheme and port can be left out and will be set to the default (http and 9200)
   # In case you specify and additional path, the scheme is required: http://localhost:9200/path
@@ -53,12 +68,31 @@ output.elasticsearch:
   # and setup.template.pattern accordingly.
   index: "'metrics-collector-'yyyy-MM-dd"
   
+  # The number of times a particular Elasticsearch index operation is attempted. If
+  # the indexing operation doesn't succeed after this many retries, the events are
+  # dropped. The default is 3.
+  max_retries: 3
+  
   # The maximum number of events to bulk in a single Elasticsearch bulk API index request.
   # The default is 50.
   bulk_max_size: 50
   
   # Boolean flag to omit zero value.
   omit_zero: true
+
+#-------------------------- File output -------------------------------
+output.file:
+  # Boolean flag to enable or disable the output module.
+  enabled: true
+  
+  # Log file path & name
+  name: metrics.log
+  
+  # Time pattern of rolling policy
+  file_name_pattern: yyyy-MM-dd
+  
+  # max file count, 0 as default
+  max_history: 30
 ```
 
 启动：
